@@ -1,6 +1,4 @@
 import asyncio
-from enum import unique
-from os import sep
 from aiogram import Bot, Dispatcher, executor
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 import aiomysql
@@ -9,7 +7,6 @@ import re
 from aiogram.types.bot_command import BotCommand
 from aiogram.types.bot_command_scope import *
 from config import *
-import copy
 
 class InfoNotFound(Exception):
     pass
@@ -143,6 +140,8 @@ async def get_classes_list(week, day):
 
         for r in result:
             num, class_time, discipline, class_type, teacher_last_name, teacher_first_name, teacher_patronymic, link = r
+            if num == 7:
+                continue
             start_time = datetime.datetime(year=2021, month=1, day=1, hour=0, minute=0, second=0)
             class_time_start = start_time + class_time
             class_time_end = start_time + class_time + datetime.timedelta(minutes=95)
@@ -387,7 +386,7 @@ async def main():
             await asyncio.sleep(60.5 - datetime.datetime.now().second)
 
 async def on_startup(x):
-    ADMIN_COMMANDS = [BotCommand('testschedule', 'Тестовое расписание')]
+    ADMIN_COMMANDS = [BotCommand('oldschedule', 'Старое расписание')]
     DEFAULT_COMMANDS = [BotCommand('schedule', 'Просмотреть расписание'), 
                         BotCommand('teachers', 'Список преподавателей'),
                         BotCommand('books', 'Просмотреть учебники'),
@@ -400,5 +399,5 @@ async def on_startup(x):
     asyncio.create_task(main())
 
 if __name__ == '__main__':
-    print('FICT Schedule Bot')
+    print('FICT Helper Bot')
     executor.start_polling(dp, on_startup=on_startup)
