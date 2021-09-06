@@ -1,11 +1,18 @@
 import asyncio
+from enum import unique
 from os import sep
 from aiogram import Bot, Dispatcher, executor
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 import aiomysql
 import datetime
 import re
-from .config import *
+from aiogram.types.bot_command import BotCommand
+from aiogram.types.bot_command_scope import *
+from config import *
+import copy
+
+class InfoNotFound(Exception):
+    pass
 
 bot = Bot(BOT_TOKEN, parse_mode='HTML')
 dp = Dispatcher(bot)
@@ -33,20 +40,127 @@ async def make_database_request(s):
 
 async def get_disciplines_list():
     try:
-        keyboard = InlineKeyboardMarkup(row_width=1)
         result = await make_database_request(f'SELECT `disciplines`.`id`, `disciplines`.`name` FROM `disciplines`')
+
+        keyboard = InlineKeyboardMarkup(row_width=1)
+
+        if not result:
+            return
+
         for r in result:
             index, name = r
             keyboard.row(InlineKeyboardButton(text=name, callback_data=f'teachers_discipline_{index}'))
-        table_button = InlineKeyboardButton(text='Перейти к таблице 🌐', 
-            url='https://docs.google.com/spreadsheets/d/1tUbErivA1WzwKxcMyxEdbdWCZQKwjNnTH0F4rLSvLPc/edit#gid=102204205')
-        keyboard.row(table_button)
+
+        keyboard.row(InlineKeyboardButton(text='Перейти к таблице 🌐', 
+                     url='https://docs.google.com/spreadsheets/d/1tUbErivA1WzwKxcMyxEdbdWCZQKwjNnTH0F4rLSvLPc/edit#gid=102204205'))
+
+        keyboard.row(InlineKeyboardButton(text='Закрыть ❌', callback_data='delete'))
         return {'text': '<i>Выберите желаемую дисциплину\n\nТакже эту информацию можно посмотреть в таблице</i>', 'reply_markup': keyboard}
     except Exception as e:
         print_error('async def get_disciplines_list()')
 
 async def get_weeks_list():
-    pass
+    try:
+        result = await make_database_request(f'SELECT DISTINCT(`week`) FROM `classes`')
+
+        if not result:
+            raise InfoNotFound('Недели не найдены')
+        
+        weeks = [item for sublist in result for item in sublist]
+        week_names = ['Первая', 'Вторая', 'Третья', 'Четвёртая', 'Пятая', 'Шестая', 'Седьмая', 'Восьмая', 'Девятая', 'Десятая']
+
+        keyboard = InlineKeyboardMarkup(row_width=1)
+
+        for week in weeks:
+            keyboard.row(InlineKeyboardButton(text=week_names[week-1], callback_data=f'schedule_{week}'))
+
+        keyboard.row(InlineKeyboardButton(text='Официальный сайт с расписанием', url='http://rozklad.kpi.ua/Schedules/ViewSchedule.aspx?g=c8c38838-0dc5-4570-b531-0e0f11a89686'))
+
+        keyboard.row(InlineKeyboardButton(text='Закрыть ❌', callback_data='delete'))
+
+        return {'text': '<i>Для просмотра расписания выберите неделю</i>', 'reply_markup': keyboard}
+    except Exception as e:
+        print_error('async def get_weeks_list()', e)
+
+async def get_days_list(week):
+    try:
+        result = await make_database_request(f'SELECT DISTINCT(`day`) FROM `classes` WHERE `week` = {week}')
+
+        if not result:
+            raise InfoNotFound(f'Дни не найдены (week == {week})')
+
+        days = [item for sublist in result for item in sublist]
+        days_names = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+
+        keyboard = InlineKeyboardMarkup(row_width=1)
+
+        for day in days:
+            keyboard.row(InlineKeyboardButton(text=days_names[day - 1], callback_data=f'schedule_{week}_{day}'))
+
+        keyboard.row(InlineKeyboardButton(text='👉 Назад', callback_data='show_weeks_list'))
+
+        return {'text': f'<i>Для просмотра расписания выберите день</i>', 'reply_markup': keyboard}
+    except Exception as e:
+        print_error('async def get_days_list(week)', e)
+
+async def get_classes_list(week, day):
+    try:
+        result = await make_database_request(f'''SELECT
+                                                    `classes`.`num`,
+                                                    `timetable`.`time`,
+                                                    `disciplines`.`name`, 
+                                                    `types`.`name`, 
+                                                    `teachers`.`lastName`, 
+                                                    `teachers`.`firstName`, 
+                                                    `teachers`.`patronymic`, 
+                                                    `classes`.`link`
+                                                 FROM 
+                                                    `classes`,
+                                                    `timetable`,
+                                                    `disciplines`, 
+                                                    `types`, 
+                                                    `teachers`
+                                                 WHERE
+                                                    `classes`.`week` = {week} AND
+                                                    `classes`.`day` = {day} AND
+                                                    `classes`.`num` = `timetable`.`id` AND
+                                                    `classes`.`discipline` = `disciplines`.`id` AND
+                                                    `classes`.`type` = `types`.`id` AND
+                                                    `classes`.`teacher` = `teachers`.`id` AND 
+                                                    `classes`.`isActive`''')
+
+        keyboard = InlineKeyboardMarkup(row_width=1)
+
+        keyboard.row(InlineKeyboardButton(text='👉 Назад', callback_data=f'schedule_{week}'))
+
+        if not result:
+            return {'text': '<i>В выбранный день пары отсутствуют</i>', 'reply_markup': keyboard}
+
+        days_names = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+        classes_nums_names = ['Первая', 'Вторая', 'Третья', 'Четвёртая', 'Пятая', 'Шестая', 'Седьмая', 'Восьмая', 'Девятая', 'Десятая']
+
+        text = f'Выбранный день: <b>{days_names[day-1]} ({week} неделя)</b>\n\n'
+
+        for r in result:
+            num, class_time, discipline, class_type, teacher_last_name, teacher_first_name, teacher_patronymic, link = r
+            start_time = datetime.datetime(year=2021, month=1, day=1, hour=0, minute=0, second=0)
+            class_time_start = start_time + class_time
+            class_time_end = start_time + class_time + datetime.timedelta(minutes=95)
+            if link:
+                link = f'<a href="{link}">ссылка</a>'
+            else:
+                link = 'отсутствует'
+            text = f'''{text}<b>{classes_nums_names[num-1]} пара</b>
+  ({class_time_start.strftime("%H:%M")} - {class_time_end.strftime("%H:%M")})
+  Название: <i>{discipline}</i>
+  Тип: <i>{class_type}</i>
+  Преподаватель: <i>{teacher_last_name} {teacher_first_name} {teacher_patronymic}</i>
+  Ссылка для подключения к паре: <i>{link}</i>\n\n'''
+
+        return {'text': text, 'reply_markup': keyboard}
+
+    except Exception as e:
+        print_error('async def get_classes_list(week, day)', e)
 
 @dp.message_handler(commands=['start'])
 async def start(message: Message):
@@ -72,7 +186,7 @@ async def test(message: Message):
     # print(type(l[0]))
     # print(type(d), d, sep='\n')
 
-@dp.message_handler(commands=['schedule'])
+@dp.message_handler(lambda message: message.from_user.id in admins, commands=['oldschedule'])
 async def show_schedule(message: Message):
     try:
         keyboard = InlineKeyboardMarkup(row_width=1)
@@ -83,10 +197,16 @@ async def show_schedule(message: Message):
     except Exception as e:
         print_error('commands=[\'schedule\']', e)
 
-@dp.message_handler(lambda message: message.from_user.id in admins, commands=['testschedule'])
+@dp.message_handler(commands=['schedule'])
 async def testschedule(message: Message):
     try:
-        pass
+        wl = await get_weeks_list()
+        
+        if not wl:
+            return
+
+        await bot.send_message(message.chat.id, wl['text'], reply_markup=wl['reply_markup'])
+
     except Exception as e:
         print_error('commands=[\'schedule\']', e)
 
@@ -139,7 +259,10 @@ async def subscribe(message: Message):
 @dp.callback_query_handler(lambda call: True)
 async def callback_handler(call: CallbackQuery):
     try:
-        if call.data[:20] == 'teachers_discipline_':
+        if call.data == 'delete':
+            await bot.delete_message(call.message.chat.id, call.message.message_id)
+        
+        elif call.data[:20] == 'teachers_discipline_':
             res = re.search(r'teachers_discipline_(?P<num>\d+)', call.data)
             num = int(res.group('num'))
             result = await make_database_request(f'SELECT `disciplines`.`name` FROM `disciplines` WHERE `disciplines`.`id` = {num}')
@@ -174,6 +297,30 @@ async def callback_handler(call: CallbackQuery):
         elif call.data == 'show_disciplines_list':
             dl = await get_disciplines_list()
             await bot.edit_message_text(dl['text'], call.message.chat.id, call.message.message_id, reply_markup=dl['reply_markup'])
+
+        elif re.match(r'schedule_\d+$', call.data):
+            res = re.match(r'schedule_(?P<week>\d+)$', call.data)
+
+            week = int(res.group('week'))
+
+            dl = await get_days_list(week)
+
+            await bot.edit_message_text(dl['text'], call.message.chat.id, call.message.message_id, reply_markup=dl['reply_markup'])
+
+        elif call.data == 'show_weeks_list':
+            wl = await get_weeks_list()
+            
+            await bot.edit_message_text(wl['text'], call.message.chat.id, call.message.message_id, reply_markup=wl['reply_markup'])
+
+        elif re.match(r'schedule_\d+_\d+$', call.data):
+            res = re.match(r'schedule_(?P<week>\d+)_(?P<day>\d+)', call.data)
+
+            week = int(res.group('week'))
+            day = int(res.group('day'))
+
+            cl = await get_classes_list(week, day)
+
+            await bot.edit_message_text(cl['text'], call.message.chat.id, call.message.message_id, reply_markup=cl['reply_markup'], disable_web_page_preview=True)
 
     except Exception as e:
         print_error('@dp.callback_query_handler(lambda call: True)', e, f'call.data == {call.data}')
@@ -240,6 +387,16 @@ async def main():
             await asyncio.sleep(60.5 - datetime.datetime.now().second)
 
 async def on_startup(x):
+    ADMIN_COMMANDS = [BotCommand('testschedule', 'Тестовое расписание')]
+    DEFAULT_COMMANDS = [BotCommand('schedule', 'Просмотреть расписание'), 
+                        BotCommand('teachers', 'Список преподавателей'),
+                        BotCommand('books', 'Просмотреть учебники'),
+                        BotCommand('unsubscribe', 'Отписаться от уведомлений')]
+    CHAT_COMMANDS = [BotCommand('subscribe', 'Подписаться на уведомления')]
+    await bot.set_my_commands(DEFAULT_COMMANDS, BotCommandScopeDefault())
+    await bot.set_my_commands(DEFAULT_COMMANDS + CHAT_COMMANDS, BotCommandScopeAllPrivateChats())
+    for admin in admins:
+        await bot.set_my_commands(DEFAULT_COMMANDS + CHAT_COMMANDS + ADMIN_COMMANDS, BotCommandScopeChat(admin))
     asyncio.create_task(main())
 
 if __name__ == '__main__':
