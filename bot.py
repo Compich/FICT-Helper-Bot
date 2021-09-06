@@ -5,8 +5,9 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 import aiomysql
 import datetime
 import re
+from .config import *
 
-bot = Bot('1957627434:AAFf7jGsqxFRVd724YHvae8CeQewxDCsQqY', parse_mode='HTML')
+bot = Bot(BOT_TOKEN, parse_mode='HTML')
 dp = Dispatcher(bot)
 
 admins = [266428137]
@@ -43,6 +44,9 @@ async def get_disciplines_list():
         return {'text': '<i>Выберите желаемую дисциплину\n\nТакже эту информацию можно посмотреть в таблице</i>', 'reply_markup': keyboard}
     except Exception as e:
         print_error('async def get_disciplines_list()')
+
+async def get_weeks_list():
+    pass
 
 @dp.message_handler(commands=['start'])
 async def start(message: Message):
@@ -81,7 +85,10 @@ async def show_schedule(message: Message):
 
 @dp.message_handler(lambda message: message.from_user.id in admins, commands=['testschedule'])
 async def testschedule(message: Message):
-    pass
+    try:
+        pass
+    except Exception as e:
+        print_error('commands=[\'schedule\']', e)
 
 @dp.message_handler(commands=['teachers'])
 async def testschedule(message: Message):
