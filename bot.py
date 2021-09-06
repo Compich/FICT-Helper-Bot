@@ -183,12 +183,11 @@ NOTIFICATION_TIME = 5
 
 async def main():
     global pool
-    pool = await aiomysql.create_pool(host='localhost', user='Compich', password=r'zWKHqx1N3%Gt', db='fict_helper')
+    pool = await aiomysql.create_pool(host=DATABASE_HOST, user=DATABASE_USER, password=DATABASE_PASSWORD, db=DATABASE_DB)
     while True:
         try:
             result = await make_database_request('SELECT * FROM `timetable`')
             now = datetime.datetime.now()
-            #now = datetime.datetime(year=2021, month=9, day=5)
             week = (now - FIRST_DAY).days // 7 % 2 + 1
             day = now.weekday() + 1
             now_td = datetime.timedelta(seconds=((now.hour * 60 + now.minute + NOTIFICATION_TIME) * 60))
