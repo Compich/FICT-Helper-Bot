@@ -199,6 +199,11 @@ async def show_schedule(message: Message):
 @dp.message_handler(commands=['schedule'])
 async def testschedule(message: Message):
     try:
+        try:
+            await bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+
         wl = await get_weeks_list()
         
         if not wl:
@@ -212,6 +217,11 @@ async def testschedule(message: Message):
 @dp.message_handler(commands=['teachers'])
 async def testschedule(message: Message):
     try:
+        try:
+            await bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+
         dl = await get_disciplines_list()
         await bot.send_message(message.chat.id, dl['text'], reply_markup=dl['reply_markup'])
     except Exception as e:
@@ -220,6 +230,11 @@ async def testschedule(message: Message):
 @dp.message_handler(commands=['books'])
 async def show_schedule(message: Message):
     try:
+        try:
+            await bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+
         await bot.send_message(message.chat.id, '<i>Функция находится в разработке..</i>')
     except Exception as e:
         print_error('commands=[\'books\']', e)
@@ -227,18 +242,29 @@ async def show_schedule(message: Message):
 @dp.message_handler(commands=['subscribe'])
 async def subscribe(message: Message):
     try:
+        try:
+            await bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+
         if message.chat.type != 'private':
             await message.reply('<i>Функция доступна только в личных сообщениях с ботом</i>')
             return
+
         result = await make_database_request(f'SELECT * FROM `subscriptions` WHERE `chatId` = {message.from_user.id} AND `isActive` = TRUE')
+
         if result:
             await message.reply('<i>Вы уже подписаны на напоминания</i>')
+
         else:
             result = await make_database_request(f'SELECT * FROM `subscriptions` WHERE `chatId` = {message.from_user.id}')
+
             if result:
                 await make_database_request(f'UPDATE `subscriptions` SET `isActive` = TRUE WHERE `chatId` = {message.from_user.id}')
+
             else:
                 await make_database_request(f'INSERT INTO `subscriptions` (`chatId`) VALUES ({message.from_user.id})')
+                
             await message.reply('<i>Вы успешно подписались на напоминания</i>')
     except Exception as e:
         print_error('commands=[\'subscribe\']', e)
@@ -246,7 +272,13 @@ async def subscribe(message: Message):
 @dp.message_handler(commands=['unsubscribe'])
 async def subscribe(message: Message):
     try:
+        try:
+            await bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+
         result = await make_database_request(f'SELECT * FROM `subscriptions` WHERE `chatId` = {message.from_user.id} AND `isActive` = TRUE')
+
         if result:
             await make_database_request(f'UPDATE `subscriptions` SET `isActive` = FALSE WHERE `chatId` = {message.from_user.id}')
             await message.reply('<i>Вы успешно отписались от напоминаний</i>')
@@ -254,6 +286,21 @@ async def subscribe(message: Message):
             await message.reply('<i>Вы ещё не подписаны на напоминания</i>')
     except Exception as e:
         print_error('commands=[\'unsubscribe\']', e)
+
+@dp.message_handler(lambda message: message.from_user.id in admins, commands=['eval'])
+async def my_eval(message: Message):
+    try:
+        text = message.get_args()
+        text = text.replace('->', 4*' ')
+        res = re.search(r'(?P<awaitable>await )?(?P<command>.+)', text, re.DOTALL | re.MULTILINE)
+        aw = res.group('awaitable')
+        command = res.group('command')
+        if aw:
+            eval(command)
+        else:
+            eval(command)
+    except Exception as e:
+        await message.reply(f'An Error Occurred!\n{e}')
 
 @dp.callback_query_handler(lambda call: True)
 async def callback_handler(call: CallbackQuery):
@@ -386,7 +433,9 @@ async def main():
             await asyncio.sleep(60.5 - datetime.datetime.now().second)
 
 async def on_startup(x):
-    ADMIN_COMMANDS = [BotCommand('oldschedule', 'Старое расписание')]
+    ADMIN_COMMANDS = [BotCommand('oldschedule', 'Старое расписание'),
+                      BotCommand('eval', 'Выполнить любое действие'),
+                      BotCommand('mr', 'Сделать запрос к базе данных')]
     DEFAULT_COMMANDS = [BotCommand('schedule', 'Просмотреть расписание'), 
                         BotCommand('teachers', 'Список преподавателей'),
                         BotCommand('books', 'Просмотреть учебники'),
